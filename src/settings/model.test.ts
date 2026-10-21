@@ -144,6 +144,30 @@ describe("model", () => {
       });
     });
 
+    it("keeps a valid Hermes backend slice and drops its malformed fields", () => {
+      const sanitized = sanitizeSettings({
+        ...DEFAULT_SETTINGS,
+        agentMode: {
+          byok: {},
+          activeBackend: "hermes",
+          backends: {
+            hermes: {
+              binaryPath: "/usr/local/bin/hermes",
+              defaultMode: "auto",
+              envOverrides: { HERMES_HOME: "/data/hermes" },
+              defaultModel: 42,
+            },
+          },
+        },
+      } as unknown as CopilotSettings);
+      expect(sanitized.agentMode.backends.hermes).toEqual({
+        binaryPath: "/usr/local/bin/hermes",
+        defaultModel: undefined,
+        defaultMode: "auto",
+        envOverrides: { HERMES_HOME: "/data/hermes" },
+      });
+    });
+
     it("defaults notificationSound to on so an unattended turn still calls the user back", () => {
       const sanitized = sanitizeSettings({
         ...DEFAULT_SETTINGS,

@@ -10,6 +10,7 @@ import {
 } from "./registry";
 import { ClaudeBackendDescriptor } from "./claude/descriptor";
 import { CodexBackendDescriptor } from "./codex/descriptor";
+import { HermesBackendDescriptor } from "./hermes/descriptor";
 import { OpencodeBackendDescriptor } from "./opencode/descriptor";
 
 jest.mock("@/agentMode/backends/opencode/OpencodeInstallModal", () => ({
@@ -73,11 +74,12 @@ describe("registry", () => {
   });
 
   describe("backendDisplayOrder()", () => {
-    it("lists opencode, then Claude, then Codex", () => {
+    it("lists opencode, then Claude, then Codex, then Hermes", () => {
       expect(backendDisplayOrder()).toEqual([
         OpencodeBackendDescriptor,
         ClaudeBackendDescriptor,
         CodexBackendDescriptor,
+        HermesBackendDescriptor,
       ]);
     });
 

@@ -219,6 +219,31 @@ describe("deviceProfiles", () => {
       expect(restored.agentMode.backends.codex?.defaultModel?.baseModelId).toBe("gpt-5");
     });
 
+    it("keeps the Hermes CLI path and env on this device while syncing its default model", () => {
+      const agentMode = makeAgentMode({
+        backends: {
+          hermes: {
+            binaryPath: "/a/hermes",
+            envOverrides: { HERMES_HOME: "/a/.hermes" },
+            defaultModel: { baseModelId: "openrouter:x", effort: null },
+          },
+        },
+      });
+
+      const disk = dehydrateDeviceProfile(makeSettings(agentMode), DEVICE_A);
+      const restored = hydrateDeviceProfile(disk, DEVICE_A);
+      const otherDevice = hydrateDeviceProfile(disk, DEVICE_B);
+
+      expect(disk.agentMode.backends.hermes).toEqual({
+        defaultModel: { baseModelId: "openrouter:x", effort: null },
+      });
+      expect(restored.agentMode.backends.hermes?.binaryPath).toBe("/a/hermes");
+      expect(restored.agentMode.backends.hermes?.envOverrides).toEqual({
+        HERMES_HOME: "/a/.hermes",
+      });
+      expect(otherDevice.agentMode.backends.hermes?.binaryPath).toBeUndefined();
+    });
+
     it("isolates devices: a path configured on A is invisible to B but survives B's save", () => {
       const aDisk = dehydrateDeviceProfile(
         makeSettings(makeAgentMode({ claudeCli: { path: "/a/claude" } })),

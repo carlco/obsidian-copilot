@@ -135,6 +135,7 @@ export interface CopilotSettings {
       opencode?: OpencodeBackendSettings;
       claude?: ClaudeBackendSettings;
       codex?: CodexBackendSettings;
+      hermes?: HermesBackendSettings;
     };
     // Keyed by device id because binary paths must not sync across devices:
     // https://github.com/logancyang/obsidian-copilot/issues/2539
@@ -180,6 +181,13 @@ export interface CodexBackendSettings {
   envOverrides?: Record<string, string>;
 }
 
+export interface HermesBackendSettings {
+  binaryPath?: string;
+  defaultModel?: ModelSelection | null;
+  defaultMode?: CopilotMode | null;
+  envOverrides?: Record<string, string>;
+}
+
 export interface OpencodeBackendSettings {
   binaryVersion?: string;
   binaryPath?: string;
@@ -206,6 +214,10 @@ export interface DeviceAgentProfile {
     envOverrides?: Record<string, string>;
   };
   claude?: {
+    envOverrides?: Record<string, string>;
+  };
+  hermes?: {
+    binaryPath?: string;
     envOverrides?: Record<string, string>;
   };
 }
@@ -799,17 +811,20 @@ function sanitizeAgentMode(raw: unknown): CopilotSettings["agentMode"] {
   const existingOpencode = backendsRaw.opencode as Record<string, unknown> | undefined;
   const existingClaude = backendsRaw.claude as Record<string, unknown> | undefined;
   const existingCodex = backendsRaw.codex as Record<string, unknown> | undefined;
+  const existingHermes = backendsRaw.hermes as Record<string, unknown> | undefined;
 
   const opencodeSlice = existingOpencode
     ? sanitizeOpencodeBackendSettings(existingOpencode)
     : undefined;
   const claudeSlice = existingClaude ? sanitizeClaudeBackendSettings(existingClaude) : undefined;
   const codexSlice = existingCodex ? sanitizeCodexBackendSettings(existingCodex) : undefined;
+  const hermesSlice = existingHermes ? sanitizeHermesBackendSettings(existingHermes) : undefined;
 
   const backends: CopilotSettings["agentMode"]["backends"] = {};
   if (opencodeSlice) backends.opencode = opencodeSlice;
   if (claudeSlice) backends.claude = claudeSlice;
   if (codexSlice) backends.codex = codexSlice;
+  if (hermesSlice) backends.hermes = hermesSlice;
 
   const deviceProfiles = sanitizeDeviceProfiles(r.deviceProfiles);
 
@@ -1109,6 +1124,17 @@ function sanitizeCodexBackendSettings(raw: unknown): CodexBackendSettings {
   };
 }
 
+function sanitizeHermesBackendSettings(raw: unknown): HermesBackendSettings {
+  if (!raw || typeof raw !== "object") return {};
+  const r = raw as Record<string, unknown>;
+  return {
+    binaryPath: nonEmptyString(r.binaryPath),
+    defaultModel: sanitizeDefaultModel(r.defaultModel),
+    defaultMode: sanitizeDefaultMode(r.defaultMode),
+    envOverrides: sanitizeEnvOverrides(r.envOverrides),
+  };
+}
+
 function sanitizeOpencodeBackendSettings(raw: unknown): OpencodeBackendSettings {
   if (!raw || typeof raw !== "object") return {};
   const r = raw as Record<string, unknown>;
@@ -1181,6 +1207,17 @@ function sanitizeDeviceAgentProfile(raw: unknown): DeviceAgentProfile | undefine
   if (claudeRaw) {
     const envOverrides = sanitizeEnvOverrides(claudeRaw.envOverrides);
     if (envOverrides) out.claude = { envOverrides };
+  }
+
+  const hermesRaw =
+    r.hermes && typeof r.hermes === "object" ? (r.hermes as Record<string, unknown>) : null;
+  if (hermesRaw) {
+    const hermes: NonNullable<DeviceAgentProfile["hermes"]> = {};
+    const binaryPath = nonEmptyString(hermesRaw.binaryPath);
+    if (binaryPath) hermes.binaryPath = binaryPath;
+    const envOverrides = sanitizeEnvOverrides(hermesRaw.envOverrides);
+    if (envOverrides) hermes.envOverrides = envOverrides;
+    if (Object.keys(hermes).length > 0) out.hermes = hermes;
   }
 
   return Object.keys(out).length > 0 ? out : undefined;
