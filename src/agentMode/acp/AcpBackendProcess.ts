@@ -39,6 +39,7 @@ import type {
   PermissionPrompt,
   PromptInput,
   PromptOutput,
+  RawModelState,
   ResumeSessionInput,
   ResumeSessionOutput,
   SessionEvent,
@@ -60,6 +61,7 @@ import {
   acpNotificationToEvents,
   acpPermissionRequestToPrompt,
   acpStateToBackendState,
+  sessionModelsFromAcp,
   cancelInputToAcp,
   decisionToAcpResponse,
   listedSessionFromAcp,
@@ -76,6 +78,7 @@ export type AcpCapability =
   | "session/load"
   | "session/set_mode"
   | "session/set_config_option"
+  | "session/set_model"
   | "mcp/http";
 
 function isMethodNotFoundError(err: unknown): boolean {
@@ -92,6 +95,7 @@ const JSONRPC_INTERNAL_ERROR = -32603;
 interface SessionWireState {
   modes: SessionModeState | null;
   configOptions: SessionConfigOption[] | null;
+  models: RawModelState | null;
 }
 
 export class AcpBackendProcess implements BackendProcess {
@@ -328,6 +332,7 @@ export class AcpBackendProcess implements BackendProcess {
     this.recordWireState(wireResp.sessionId, {
       modes: wireResp.modes ?? null,
       configOptions: wireResp.configOptions ?? null,
+      models: sessionModelsFromAcp(wireResp),
     });
     return {
       sessionId: sessionIdFromAcp(wireResp.sessionId),
@@ -471,13 +476,23 @@ export class AcpBackendProcess implements BackendProcess {
     const option = this.sessionWireState
       .get(params.sessionId)
       ?.configOptions?.find((option) => option.type === "select" && option.category === "model");
-    // Current agents expose model switching only through advertised config options. https://github.com/Brevilabs/obsidian-copilot-private/issues/550
-    if (!option) throw new MethodUnsupportedError("session/set_config_option");
-    return this.setSessionConfigOption({
-      sessionId: params.sessionId,
-      configId: option.id,
-      value: params.modelId,
-    });
+    if (option) {
+      return this.setSessionConfigOption({
+        sessionId: params.sessionId,
+        configId: option.id,
+        value: params.modelId,
+      });
+    }
+    const wire = this.sessionWireState.get(params.sessionId);
+    if (!wire?.models) throw new MethodUnsupportedError("session/set_config_option");
+    await this.dispatchCapability("session/set_model", (c) =>
+      c.agent.request("session/set_model", {
+        sessionId: sessionIdToAcp(params.sessionId),
+        modelId: params.modelId,
+      })
+    );
+    wire.models = { ...wire.models, currentModelId: params.modelId };
+    return this.computeState(sessionIdToAcp(params.sessionId));
   }
 
   isSetSessionModelSupported(): boolean | null {
@@ -586,6 +601,7 @@ export class AcpBackendProcess implements BackendProcess {
     this.recordWireState(sessionIdToAcp(params.sessionId), {
       modes: wireResp.modes ?? null,
       configOptions: wireResp.configOptions ?? null,
+      models: sessionModelsFromAcp(wireResp),
     });
     return {
       sessionId: params.sessionId,
@@ -610,6 +626,7 @@ export class AcpBackendProcess implements BackendProcess {
     this.recordWireState(sessionIdToAcp(sessionId), {
       modes: wireResp.modes ?? null,
       configOptions: wireResp.configOptions ?? null,
+      models: sessionModelsFromAcp(wireResp),
     });
     return { sessionId, state: this.computeState(sessionIdToAcp(sessionId)) };
   }
@@ -699,8 +716,9 @@ export class AcpBackendProcess implements BackendProcess {
     const wire = this.sessionWireState.get(sessionIdFromAcp(sessionId)) ?? {
       modes: null,
       configOptions: null,
+      models: null,
     };
-    return acpStateToBackendState(wire.modes, wire.configOptions, this.descriptor);
+    return acpStateToBackendState(wire.modes, wire.configOptions, this.descriptor, wire.models);
   }
 
   private routeSessionUpdate(acpSessionId: AcpSessionId, update: SessionNotification): void {

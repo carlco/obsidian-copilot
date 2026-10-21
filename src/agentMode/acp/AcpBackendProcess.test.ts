@@ -20,6 +20,7 @@ const mockCloseSession = jest.fn(async (..._args: unknown[]) => ({}));
 const mockSetSessionConfigOption = jest.fn(async (params: { value: string }) => ({
   configOptions: modelOptions(params.value),
 }));
+const mockSetSessionModel = jest.fn(async (..._args: unknown[]) => ({}));
 const mockLoadSession = jest.fn(async (..._args: unknown[]) => ({}));
 const mockListSessions = jest.fn(async (..._args: unknown[]) => ({ sessions: [] }));
 const mockInitializeRequest = jest.fn();
@@ -75,6 +76,7 @@ jest.mock("@agentclientprotocol/sdk", () => {
           "session/prompt": prompt,
           "session/set_config_option": (params) =>
             mockSetSessionConfigOption(params as { value: string }),
+          "session/set_model": mockSetSessionModel,
         };
         return {
           prompt,
@@ -266,6 +268,67 @@ describe("AcpBackendProcess", () => {
           }
         ).computeState("s1");
         expect(state.model?.current.baseModelId).toBe("model-a");
+      });
+
+      async function openLegacyModelSession(extra: Record<string, unknown> = {}) {
+        mockSetSessionModel.mockClear();
+        mockNewSession.mockResolvedValue({
+          sessionId: "s1",
+          models: {
+            currentModelId: "openrouter:model-a",
+            availableModels: [
+              { modelId: "openrouter:model-a", name: "Model A" },
+              { modelId: "anthropic:model-b", name: "Model B" },
+            ],
+          },
+          ...extra,
+        } as { sessionId: string });
+        const backend = new AcpBackendProcess(
+          buildApp(),
+          buildStubBackend(),
+          "1.0.0",
+          modelDescriptor()
+        );
+        await backend.start();
+        const opened = await backend.newSession({ cwd: "/vault" });
+        return { backend, opened };
+      }
+
+      it("reports the catalog of an agent that advertises models without a model config option", async () => {
+        const { opened } = await openLegacyModelSession();
+        expect(opened.state.model?.availableModels.map((m) => m.baseModelId)).toEqual([
+          "openrouter:model-a",
+          "anthropic:model-b",
+        ]);
+        expect(opened.state.model?.current.baseModelId).toBe("openrouter:model-a");
+        expect(opened.state.model?.apply).toEqual({ kind: "setModel" });
+      });
+
+      it("switches through session/set_model when the agent advertises models without a model config option", async () => {
+        const { backend } = await openLegacyModelSession();
+        const state = await backend.setSessionModel({
+          sessionId: "s1",
+          modelId: "anthropic:model-b",
+        });
+        expect(mockSetSessionModel).toHaveBeenCalledWith({
+          sessionId: "s1",
+          modelId: "anthropic:model-b",
+        });
+        expect(state.model?.current.baseModelId).toBe("anthropic:model-b");
+        expect(mockSetSessionConfigOption).not.toHaveBeenCalled();
+      });
+
+      it("prefers the model config option over advertised models when an agent sends both", async () => {
+        const { backend, opened } = await openLegacyModelSession({
+          configOptions: modelOptions("model-a"),
+        });
+        expect(opened.state.model?.apply).toEqual({
+          kind: "setConfigOption",
+          configId: "active-model",
+        });
+        await backend.setSessionModel({ sessionId: "s1", modelId: "model-b" });
+        expect(mockSetSessionConfigOption).toHaveBeenCalled();
+        expect(mockSetSessionModel).not.toHaveBeenCalled();
       });
 
       it("reports unsupported switching when the session advertises no model option https://github.com/Brevilabs/obsidian-copilot-private/issues/550", async () => {

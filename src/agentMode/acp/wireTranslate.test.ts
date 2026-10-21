@@ -1,6 +1,11 @@
 import type { RequestPermissionRequest, SessionNotification } from "@agentclientprotocol/sdk";
 import type { PermissionOption } from "@/agentMode/session/types";
-import { acpNotificationToEvents, acpPermissionRequestToPrompt } from "./wireTranslate";
+import {
+  acpNotificationToEvents,
+  acpPermissionRequestToPrompt,
+  hasModelConfigOption,
+  sessionModelsFromAcp,
+} from "./wireTranslate";
 
 const SESSION_ID = "sess-1";
 
@@ -691,4 +696,74 @@ const testAcpPermissionRequestToPrompt = () => {
 describe("wireTranslate", () => {
   describe("acpNotificationToEvents()", testAcpNotificationToEvents);
   describe("acpPermissionRequestToPrompt()", testAcpPermissionRequestToPrompt);
+
+  describe("sessionModelsFromAcp()", () => {
+    it("reads the advertised model catalog from a session response", () => {
+      expect(
+        sessionModelsFromAcp({
+          sessionId: "s1",
+          models: {
+            currentModelId: "openrouter:a",
+            availableModels: [
+              { modelId: "openrouter:a", name: "A", description: "Fast" },
+              { modelId: "anthropic:b", name: "B", description: null },
+            ],
+          },
+        })
+      ).toEqual({
+        currentModelId: "openrouter:a",
+        availableModels: [
+          { modelId: "openrouter:a", name: "A", description: "Fast" },
+          { modelId: "anthropic:b", name: "B", description: undefined },
+        ],
+      });
+    });
+
+    it("names a model by its id when the agent sends no name and skips entries without an id", () => {
+      expect(
+        sessionModelsFromAcp({
+          models: { currentModelId: "a", availableModels: [{ modelId: "a" }, { name: "orphan" }] },
+        })
+      ).toEqual({ currentModelId: "a", availableModels: [{ modelId: "a", name: "a" }] });
+    });
+
+    it("returns null when the response has no well-formed models field", () => {
+      expect(sessionModelsFromAcp({ sessionId: "s1" })).toBeNull();
+      expect(sessionModelsFromAcp({ models: { availableModels: [] } })).toBeNull();
+      expect(sessionModelsFromAcp(null)).toBeNull();
+    });
+  });
+
+  describe("hasModelConfigOption()", () => {
+    it("is true when a select option carries the model category", () => {
+      expect(
+        hasModelConfigOption([
+          {
+            id: "model",
+            type: "select",
+            name: "Model",
+            category: "model",
+            currentValue: "a",
+            options: [{ value: "a", name: "A" }],
+          },
+        ])
+      ).toBe(true);
+    });
+
+    it("is false when no options or no model-category option is advertised", () => {
+      expect(hasModelConfigOption(null)).toBe(false);
+      expect(
+        hasModelConfigOption([
+          {
+            id: "mode",
+            type: "select",
+            name: "Mode",
+            category: "mode",
+            currentValue: "a",
+            options: [{ value: "a", name: "A" }],
+          },
+        ])
+      ).toBe(false);
+    });
+  });
 });

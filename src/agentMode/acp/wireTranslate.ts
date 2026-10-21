@@ -23,6 +23,7 @@ import type {
   BackendConfigOption,
   BackendDescriptor,
   RawModeState,
+  RawModelState,
   BackendState,
   CancelInput,
   CompactionStatus,
@@ -101,14 +102,50 @@ function configOptionFromAcp(opt: SessionConfigOption): BackendConfigOption {
   };
 }
 
+export function sessionModelsFromAcp(response: unknown): RawModelState | null {
+  const models = (response as { models?: unknown } | null)?.models as
+    | {
+        currentModelId?: unknown;
+        availableModels?: { modelId?: unknown; name?: unknown; description?: unknown }[];
+      }
+    | null
+    | undefined;
+  if (typeof models?.currentModelId !== "string" || !Array.isArray(models.availableModels)) {
+    return null;
+  }
+  return {
+    currentModelId: models.currentModelId,
+    availableModels: models.availableModels.flatMap((m) =>
+      typeof m?.modelId === "string"
+        ? [
+            {
+              modelId: m.modelId,
+              name: typeof m.name === "string" ? m.name : m.modelId,
+              description: typeof m.description === "string" ? m.description : undefined,
+            },
+          ]
+        : []
+    ),
+  };
+}
+
+export function hasModelConfigOption(
+  configOptions: SessionConfigOption[] | null | undefined
+): boolean {
+  return (configOptions ?? []).some(
+    (option) => option.type === "select" && option.category === "model"
+  );
+}
+
 export function acpStateToBackendState(
   modes: SessionModeState | null | undefined,
   configOptions: SessionConfigOption[] | null | undefined,
-  descriptor: BackendDescriptor
+  descriptor: BackendDescriptor,
+  models: RawModelState | null = null
 ): BackendState {
   return translateBackendState(
     {
-      models: null,
+      models: hasModelConfigOption(configOptions) ? null : models,
       modes: modeStateFromAcp(modes),
       configOptions: configOptionsFromAcp(configOptions),
     },
